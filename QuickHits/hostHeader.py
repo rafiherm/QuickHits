@@ -7,9 +7,9 @@ Input is assumed to be valid, input validation will be implemented in the comple
 """
 
 import sys
-import requests
-import re
-
+import httpx
+import datetime
+from colorama import Fore, Back, Style
 
 def validateURL(url):
     """
@@ -33,27 +33,97 @@ def validateURL(url):
     """
     pass
 
-def scanPage(url, proxy=None):
+def logEvent(icon, colour, message):
+    # Prints relevant data prettily
+    time = datetime.datetime.now()
+    print("[" + colour + icon + Style.RESET_ALL + "] -", message, "| %s" % time)
+
+def scanHeaderFuzz(url, proxy, hostheader):
+
+    with httpx.Client(proxies=proxy) as client:
+
+        headers = httpx.Headers(
+            [
+                # put your headers here
+                #("Host", "rafi"),
+                #("Host", "herm"),
+                ("Cache-Control", "no-cache"),
+                ("Cache-Control", "no-store")
+            ]
+        )
+
+        request = client.build_request("GET", url)
+        
+        request.headers = headers
+        r = client.send(request)
+        print(r.text)
+        #return httpx.get(url=url, proxies=proxy, headers=headers, follow_redirects=False)
+
+def scanURL(url, proxy=None):
 
     # Validate URL(s)
+    # group URLs if there are redirects
     #print(validateURL(urls))
     
     """
-    PAYLOADS
+    CHECKS
 
     - Arbitrary Domain (Host: rafi.hermann)
+    - new subdomain
     - Stripping away from subdomain
-        If stripped subdomain becomes valid, try adding a new subdomain (Host: rafi.vulnerable.site)
-    - Only host/domain name is validated, not port. may allow for non-numeric port (Host: vulnerable.site:rafi)
+        If stripped subdomain becomes valid, try adding a new subdomain (Host: cybercx.vulnerable.site)
+    - Only host/domain name is validated, not port. may allow for non-numeric port (Host: vulnerable.site:cybercx)
+
+    - Host: localhost, 127.0.0.1 and other permutations
+    - accessing vhosts
+
+    CHECKS I NEED TO FIGURE OUT - requests, httpx and curl are blocking duplicate host headers
+
     - Duplicate host headers (Host: vulnerable.site, Host: rafi.herm)
     - Absolute URL (GET https://vulnerable.site/ HTTP/1.1, Host: rafi.herm)
     - Line wrapping - duplicate headers where the first is indented by a space or tab
-    - Host: localhost, 127.0.0.1
-
+    
     Need to check for either a reflection of the hostname or a significant change in response (size, code, time etc)
     """
     
+    
+    # CHECK 0: STANDARD APPLICATION BEHAVIOUR
+    standardRequest = httpx.get(url=url, proxies=proxy, follow_redirects=False)
+    #standardRequestAttr = [standardRequest.status_code, standardRequest.elapsed.total_seconds(), standardRequest.headers, len(standardRequest.content)]
 
-urls = sys.argv[1]
-print(urls)
-scanHost(urls)
+
+    # CHECK 1: ARBITRARY HOST HEADER
+    arbHeader = "cybercx.com.au"
+    arbDomainResponse = scanHeaderFuzz(url, proxy, arbHeader)
+    
+    # check if application responds differently to new host header. if so, log it
+    if arbDomainResponse.status_code != standardRequest.status_code:
+        logEvent("*", Fore.BLUE, "Arbirtary host header returns status code " + str(arbDomainResponse.status_code))
+    else:
+        logEvent("*", Fore.BLUE, "Arbirtary host header does not change status code")
+    
+    # check if arbitrary host header is reflected in response header(s)
+    hostInHeaders = False
+    for key in arbDomainResponse.headers:
+        if arbHeader in arbDomainResponse.headers[key]:
+            hostInHeaders = True
+
+    if hostInHeaders:
+        logEvent("!", Fore.RED, "Arbirtary host header reflected in response header(s)") 
+
+    # check if arbitrary host header returns a "significantly" different response body size
+    #bodySize
+
+    # check if arbitraru host header is refleced in response body
+    if arbHeader in arbDomainResponse.text.lower():
+        logEvent("!", Fore.RED, "Arbirtary host header reflected in response body") 
+
+    
+
+
+    
+
+url = sys.argv[1]
+proxy = sys.argv[2]
+print(url)
+scanURL(url, { "http://" : proxy})
